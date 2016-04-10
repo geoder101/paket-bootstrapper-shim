@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+#
+# Description: F# Paket Bootstrapper shim
+# Author: George Dernikos <geoder101@gmail.com>
+# Project URL: https://github.com/geoder101/paket-bootstrapper-shim
+# License: MIT
+#
+# Version: 0.1.0
+#
+
+set -e
+
+DIR=`dirname "$0"`
+ARGS="$@"
+EXE="$DIR/.paket.bootstrapper.exe"
+
+error()
+{
+    echo "$1"
+    exit 1
+}
+
+warning()
+{
+    echo "$1"
+    false
+}
+
+info()
+{
+    echo "$1"
+}
+
+run() {
+    if [ -f "$EXE" ]; then
+        exec mono "$EXE" $ARGS
+    fi
+}
+
+install_from_github() {
+    info "Installing from github"
+    local DOWNLOAD_LINK
+    DOWNLOAD_LINK="https://github.com$(curl -sSL "https://github.com/fsprojects/Paket/releases/latest" | grep -oiE '/fsprojects/Paket/releases/download/.*?/paket.bootstrapper.exe')"
+    (
+        [[ "$DOWNLOAD_LINK" && "$DOWNLOAD_LINK" != "https://github.com" ]] \
+        && printf "Downloading %s..." "$DOWNLOAD_LINK" \
+        || warning "Could not resolve download link"
+    ) \
+    && \
+    (
+        curl -sSL "$DOWNLOAD_LINK" > "$EXE" \
+        || (printf " FAILED\n" && warning "Could not download from github")
+    ) \
+    && printf " DONE\n"
+}
+
+install_from_nuget() {
+    info "Installing from nuget"
+    local TMP_FILE DOWNLOAD_LINK
+    TMP_FILE=`mktemp`
+    DOWNLOAD_LINK=$(curl -sG -d '$filter=Id%20eq%20'"'"'paket.bootstrapper'"'"'%20and%20IsPrerelease%20eq%20false&$orderby=LastUpdated%20desc&$top=1' "http://www.nuget.org/api/v2/Packages()" | sed -n 's;.*src="\([^"]*\).*;\1;p')
+    (
+        [ "$DOWNLOAD_LINK" ] \
+        && printf "Downloading %s..." "$DOWNLOAD_LINK" \
+        || warning "Could not resolve download link"
+    ) \
+    && \
+    (
+        curl -sSL "$DOWNLOAD_LINK" > "$TMP_FILE" \
+        || (printf " FAILED\n" && warning "Could not download from nuget")
+    ) \
+    && printf " DONE\n" \
+    && unzip -qq -o -p $TMP_FILE tools/paket.bootstrapper.exe > $EXE \
+    && (rm $TMP_FILE &>/dev/null || true)
+}
+
+run
+install_from_github || install_from_nuget || error "Failed to install paket.bootstrapper.exe"
+info "Successfully installed paket.bootstrapper.exe"
+run
